@@ -579,6 +579,7 @@ static NSAttributedString *AttributedStringFromMacTEXTAndStyl(NSData *textData, 
 
 	const uint8_t *bytes = (const uint8_t *)[stylData bytes];
 	NSUInteger length = [stylData length];
+	NSUInteger textLength = [textData length];
 
 	if (length < 2)
 		return nil;
@@ -586,7 +587,11 @@ static NSAttributedString *AttributedStringFromMacTEXTAndStyl(NSData *textData, 
 	uint16_t elements = CFSwapInt16BigToHost(*(uint16_t *)bytes);
 	const NSUInteger elementSize = 20;
 
-	if (length < elements * elementSize)
+	// A StScrpRec is the 2-byte element count FOLLOWED BY the table, so the
+	// table needs 2 + elements * elementSize bytes. Testing only the table size
+	// let a styl that is exactly elements * elementSize long through, and the
+	// loop below then read its last two bytes past the end of the buffer.
+	if (length < 2 + (NSUInteger)elements * elementSize)
 		return nil;
 
 	NSUInteger cursor = 2;
@@ -605,9 +610,34 @@ static NSAttributedString *AttributedStringFromMacTEXTAndStyl(NSData *textData, 
 		int32_t nextChar;
 
 		if (i + 1 == elements)
-			nextChar = [textData length];
+			nextChar = (int32_t)textLength;
 		else
 			nextChar = CFSwapInt32BigToHost(*(int32_t *)(bytes + cursor));
+
+		// Both offsets come from the guest and neither has been checked against
+		// the TEXT they index. -subdataWithRange: answers an out-of-bounds range
+		// with an NSRangeException, nothing on this path catches it, and an
+		// uncaught Objective-C exception in a C++ program calls std::terminate:
+		// the emulator dies with SIGABRT while the guest merely copied.
+		//
+		// Three ways a styl produces one, all reachable from an ordinary Copy in
+		// a styled TextEdit record whose style runs outlive the text they were
+		// written for:
+		//   startChar < 0            -> NSUInteger conversion makes it enormous
+		//   nextChar  > textLength   -> range runs past the end
+		//   nextChar  < startChar    -> the subtraction underflows to enormous
+		//
+		// Clamp rather than bail out: the remaining runs are still usable, and a
+		// paste that loses styling on a malformed run is a better answer than no
+		// emulator.
+		if (startChar < 0)
+			startChar = 0;
+
+		if (nextChar > (int32_t)textLength)
+			nextChar = (int32_t)textLength;
+
+		if (startChar >= nextChar)
+			continue;
 
 		NSMutableDictionary *attrs = [[NSMutableDictionary alloc] init];
 		NSColor *color = [NSColor colorWithDeviceRed:(CGFloat)red / 65535.0 green:(CGFloat)green / 65535.0 blue:(CGFloat)blue / 65535.0 alpha:1.0];
