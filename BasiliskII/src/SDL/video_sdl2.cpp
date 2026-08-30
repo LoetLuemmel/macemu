@@ -47,6 +47,10 @@
 #include <SDL_mutex.h>
 #include <SDL_thread.h>
 #include <errno.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
 #include <vector>
 #include <string>
 #include <math.h>
@@ -190,6 +194,7 @@ static uint16 last_gamma_blue[256];
 
 // Video refresh function
 static void VideoRefreshInit(void);
+static void fb_dump_signal(int);
 static void (*video_refresh)(void);
 
 
@@ -1425,6 +1430,9 @@ bool VideoInit(bool classic)
 
 	// Read prefs
 	frame_skip = PrefsFindInt32("frameskip");
+
+	// Framebuffer export on SIGUSR1 (AppleBridge spike)
+	signal(SIGUSR1, fb_dump_signal);
 	mouse_wheel_mode = PrefsFindInt32("mousewheelmode");
 	mouse_wheel_lines = PrefsFindInt32("mousewheellines");
 	mouse_wheel_reverse = mouse_wheel_lines < 0;
@@ -2629,6 +2637,68 @@ static void update_display_static(driver_base *drv)
 	}
 }
 
+/*
+ *  Framebuffer export (AppleBridge spike, 2026-08-30)
+ *
+ *  On SIGUSR1, the next refresh writes the Mac framebuffer to
+ *  $BASILISK_FB_DUMP (default /tmp/basilisk_fb.bin), atomically via a
+ *  temporary name:
+ *      "ABFB" u32 x  u32 y  u32 rowBytes  u32 depth(bpp)  u32 nBoxes
+ *      256 * {r,g,b}                       (the current 8-bit palette)
+ *      nBoxes * {u16 x, u16 y, u16 w, u16 h}  (64x64 tiles dirty in the LAST scan)
+ *      y * rowBytes bytes of pixels         (the_buffer, read only)
+ *  All little-endian, host order. The dirty boxes are the ones
+ *  update_display_static_bbox found on the refresh that performed the dump,
+ *  i.e. what changed since the previous 10 Hz scan — not since the previous
+ *  dump. A consumer that wants "since my last dump" keeps its own copy.
+ */
+static volatile sig_atomic_t fb_dump_requested = 0;
+static SDL_Rect fb_last_boxes[1024];
+static uint32 fb_last_nr_boxes = 0;
+
+static void fb_dump_signal(int)
+{
+	fb_dump_requested = 1;
+}
+
+static void dump_framebuffer(driver_base *drv)
+{
+	const VIDEO_MODE &mode = drv->mode;
+	const char *path = getenv("BASILISK_FB_DUMP");
+	if (path == NULL) path = "/tmp/basilisk_fb.bin";
+	std::string tmp = std::string(path) + ".tmp";
+	FILE *f = fopen(tmp.c_str(), "wb");
+	if (f == NULL) return;
+
+	uint32 hdr[6];
+	hdr[0] = 0x42464241;                       /* "ABFB" as LE bytes */
+	hdr[1] = VIDEO_MODE_X;
+	hdr[2] = VIDEO_MODE_Y;
+	hdr[3] = VIDEO_MODE_ROW_BYTES;
+	hdr[4] = 1 << (int)VIDEO_MODE_DEPTH;      /* VIDEO_DEPTH_nBIT is log2 */
+	hdr[5] = fb_last_nr_boxes;
+	fwrite(hdr, sizeof(hdr), 1, f);
+
+	uint8 pal[256 * 3];
+	LOCK_PALETTE;
+	for (int i = 0; i < 256; i++) {
+		pal[i * 3 + 0] = sdl_palette ? sdl_palette->colors[i].r : 0;
+		pal[i * 3 + 1] = sdl_palette ? sdl_palette->colors[i].g : 0;
+		pal[i * 3 + 2] = sdl_palette ? sdl_palette->colors[i].b : 0;
+	}
+	UNLOCK_PALETTE;
+	fwrite(pal, sizeof(pal), 1, f);
+
+	for (uint32 i = 0; i < fb_last_nr_boxes; i++) {
+		uint16 b[4] = { (uint16)fb_last_boxes[i].x, (uint16)fb_last_boxes[i].y,
+		                (uint16)fb_last_boxes[i].w, (uint16)fb_last_boxes[i].h };
+		fwrite(b, sizeof(b), 1, f);
+	}
+	fwrite(the_buffer, VIDEO_MODE_ROW_BYTES, VIDEO_MODE_Y, f);
+	fclose(f);
+	rename(tmp.c_str(), path);
+}
+
 // Static display update (fixed frame rate, bounding boxes based)
 // XXX use NQD bounding boxes to help detect dirty areas?
 static void update_display_static_bbox(driver_base *drv)
@@ -2684,6 +2754,10 @@ static void update_display_static_bbox(driver_base *drv)
 	// Unlock surface, if required
 	if (SDL_MUSTLOCK(drv->s))
 		SDL_UnlockSurface(drv->s);
+
+	// Remember the dirty tiles for the framebuffer export
+	fb_last_nr_boxes = nr_boxes < 1024 ? nr_boxes : 1024;
+	memcpy(fb_last_boxes, boxes, fb_last_nr_boxes * sizeof(SDL_Rect));
 
 	// Refresh display
 	if (nr_boxes)
@@ -2792,6 +2866,10 @@ static void video_refresh_window_static(void)
 			update_display_static_bbox(drv);
 		else
 			update_display_static(drv);
+		if (fb_dump_requested) {
+			fb_dump_requested = 0;
+			dump_framebuffer(drv);
+		}
 	}
 }
 

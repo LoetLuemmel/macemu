@@ -126,7 +126,6 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
-				E4150D1420D559800077C51A /* SDL2.framework in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -328,7 +327,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				E413D93620D260DA00E437D8 /* SDL2.framework in Frameworks */,
 				E416BEEA2410AA9800751E6D /* Security.framework in Frameworks */,
 				756C1B391F25306A00620917 /* AppKit.framework in Frameworks */,
 				752F26FB1F240E69001032B4 /* IOKit.framework in Frameworks */,
@@ -1039,7 +1037,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				HEADER_SEARCH_PATHS = "";
 				"HEADER_SEARCH_PATHS[arch=arm64]" = (
-					/Library/Frameworks/SDL2.framework/Headers,
+					/usr/local/include/SDL2,
 					../MacOSX,
 					../include,
 					../uae_cpu_2021,
@@ -1047,7 +1045,7 @@
 					../slirp,
 				);
 				"HEADER_SEARCH_PATHS[arch=x86_64]" = (
-					/Library/Frameworks/SDL2.framework/Headers,
+					/usr/local/include/SDL2,
 					../MacOSX,
 					../include,
 					../uae_cpu,
@@ -1069,6 +1067,7 @@
 				);
 				"OTHER_LDFLAGS[arch=x86_64]" = (
 					"-luae_cpu_x86_64",
+					"-lSDL2",
 					"-Wl,-no_pie",
 					"-pagezero_size",
 					0x1000,
@@ -1125,7 +1124,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				HEADER_SEARCH_PATHS = "";
 				"HEADER_SEARCH_PATHS[arch=arm64]" = (
-					/Library/Frameworks/SDL2.framework/Headers,
+					/usr/local/include/SDL2,
 					../MacOSX,
 					../include,
 					../uae_cpu_2021,
@@ -1133,7 +1132,7 @@
 					../slirp,
 				);
 				"HEADER_SEARCH_PATHS[arch=x86_64]" = (
-					/Library/Frameworks/SDL2.framework/Headers,
+					/usr/local/include/SDL2,
 					../MacOSX,
 					../include,
 					../uae_cpu,
@@ -1154,6 +1153,7 @@
 				);
 				"OTHER_LDFLAGS[arch=x86_64]" = (
 					"-luae_cpu_x86_64",
+					"-lSDL2",
 					"-Wl,-no_pie",
 					"-pagezero_size",
 					0x1000,
