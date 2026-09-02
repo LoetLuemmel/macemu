@@ -312,6 +312,15 @@ static int retreive_auth_info(void)
 	AuthorizationItemSet *mySet;
 	int i;
 
+	/* Already running as root? Then we were launched setuid-root directly by
+	 * the patched run_tool (no AuthorizationExecuteWithPrivileges), so the
+	 * privileged reference is absent — and unnecessary, since we already hold
+	 * the privilege it would prove. Accept it. The auth handshake below still
+	 * guards the ordinary, non-setuid launch. (AppleBridge, 2026-09-02) */
+	if (geteuid() == 0) {
+		return 0;
+	}
+
 	status = AuthorizationCopyPrivilegedReference(&aRef, kAuthorizationFlagDefaults);
 	if (status != errAuthorizationSuccess) {
 		return -1;

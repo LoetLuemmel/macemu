@@ -23,6 +23,7 @@
 #include <string.h>
 
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/socket.h>
 #include <net/if_dl.h>
 #include <ifaddrs.h>
@@ -90,7 +91,48 @@ FILE * run_tool(const char *if_name, const char *tool_name)
 
 	args[0] = (char *)tool_name;
 	args[1] = (char *)if_name;
-  
+
+	/* If the helper is already setuid-root, run it directly — no
+	 * AuthorizationExecuteWithPrivileges, hence no password dialog. The tool
+	 * speaks its protocol over fd 0 (a bidirectional socket: it write()s the
+	 * ready byte and incoming frames to fd 0 and read()s outgoing frames from
+	 * it), so we hand it one end of a socketpair as fd 0, exactly the channel
+	 * the Authorization path sets up. Anything short of a clean setuid-root
+	 * spawn falls through to the auth path below. (AppleBridge, 2026-09-02) */
+	{
+		struct stat st;
+
+		if (stat(path_buffer, &st) == 0 &&
+		    st.st_uid == 0 && (st.st_mode & S_ISUID)) {
+			int sv[2];
+
+			if (socketpair(AF_UNIX, SOCK_STREAM, 0, sv) == 0) {
+				pid_t pid = fork();
+
+				if (pid == 0) {
+					close(sv[0]);
+					dup2(sv[1], 0);
+					if (sv[1] != 0)
+						close(sv[1]);
+					execl(path_buffer, path_buffer,
+					      if_name, (char *)NULL);
+					_exit(127);
+				} else if (pid > 0) {
+					close(sv[1]);
+					fp = fdopen(sv[0], "r+");
+					if (fp == NULL)
+						close(sv[0]);
+				} else {
+					close(sv[0]);
+					close(sv[1]);
+				}
+			}
+		}
+	}
+
+	if (fp != NULL)
+		goto have_fp;
+
 	auth_flags = kAuthorizationFlagExtendRights |
 		kAuthorizationFlagInteractionAllowed |
 		kAuthorizationFlagPreAuthorize;
@@ -126,6 +168,7 @@ FILE * run_tool(const char *if_name, const char *tool_name)
 		return NULL;
 	}
 
+ have_fp:
 	if(fread(&c, 1, 1, fp) != 1) {
 	  fclose(fp);
 	  return NULL;
