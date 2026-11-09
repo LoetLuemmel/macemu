@@ -30,6 +30,10 @@
  *  the thread that created the SDL window and pumps its events
  *  (VideoInterrupt), as SDL's clipboard functions require.
  *
+ *  GetScrap() only queries the host clipboard after the video driver saw
+ *  a clipboard-update event; querying on every call froze the guest while
+ *  another X client (xsel, the VNC server) owned the selection.
+ *
  *  ClipInit() runs before VideoInit(), so SDL is not touched there.
  */
 
@@ -75,6 +79,9 @@ static bool no_clip_conversion;
 
 // Flag for PutScrap(): the data was put by GetScrap(), don't bounce it back to the host side
 static bool we_put_this_data = false;
+
+// Set by the SDL video driver on SDL_CLIPBOARDUPDATE / SDL_EVENT_CLIPBOARD_UPDATE
+extern volatile bool sdl_clipboard_changed;
 
 // Last UTF-8 text exchanged with the host clipboard; used to skip
 // copying the host clipboard back to the Mac when nothing changed
@@ -222,8 +229,13 @@ void GetScrap(void **handle, uint32 type, int32 offset)
 	D(bug("GetScrap handle %p, type %08x, offset %d\n", handle, type, offset));
 	if (type != FOURCC('T','E','X','T'))
 		return;
-	if (!SDL_HasClipboardText())
+
+	// Many applications call GetScrap() on every pass of their event loop
+	// (e.g. to enable "Paste"). Asking another X client for the selection
+	// each time stalls the emulator, so only look when SDL reported a change.
+	if (!sdl_clipboard_changed)
 		return;
+	sdl_clipboard_changed = false;
 
 	char *host = SDL_GetClipboardText();
 	if (host == NULL)

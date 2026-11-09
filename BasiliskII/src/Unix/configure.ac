@@ -920,7 +920,12 @@ if [[ "x$WANT_SDL_VIDEO" = "xyes" ]]; then
       EXTRASYSSRCS="$EXTRASYSSRCS ../Windows/clip_windows.cpp"
       ;;
     *)
-      EXTRASYSSRCS="$EXTRASYSSRCS ../SDL/clip_sdl.cpp"
+      dnl SDL 1.x has no clipboard API
+      if [[ "x$WANT_SDL_VERSION_MAJOR" = "x1" ]]; then
+        EXTRASYSSRCS="$EXTRASYSSRCS ../dummy/clip_dummy.cpp"
+      else
+        EXTRASYSSRCS="$EXTRASYSSRCS ../SDL/clip_sdl.cpp"
+      fi
       ;;
     esac
   fi
