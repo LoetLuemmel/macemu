@@ -2283,6 +2283,10 @@ static bool SDLCALL on_sdl_event_generated(void *userdata, SDL_Event *event)
 }
 
 
+// Set when SDL reports a host clipboard change; consumed by GetScrap() in
+// clip_sdl.cpp, so the host clipboard is not queried on every GetScrap call
+volatile bool sdl_clipboard_changed = true;
+
 static void handle_events(void)
 {
 	SDL_Event events[10];
@@ -2412,6 +2416,11 @@ static void handle_events(void)
 			case SDL_EVENT_WINDOW_RESTORED:
 				// Force a complete window refresh when activating, to avoid redraw artifacts otherwise.
 				force_complete_window_refresh();
+				break;
+
+			// Host clipboard changed (read lazily by clip_sdl.cpp)
+			case SDL_EVENT_CLIPBOARD_UPDATE:
+				sdl_clipboard_changed = true;
 				break;
 
 			// Window "close" widget clicked
